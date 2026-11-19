@@ -1,0 +1,11 @@
+src/target/
+result
+result-*
+*.pem
+*.key
+*secret*
+*.db
+*.db-*
+.direnv/
+ROADMAP.md
+commands.txt

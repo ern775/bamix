@@ -1,0 +1,15 @@
+name: hello-c
+nixpkgs:
+  rev: "f4a03c008967841f2a0b3cb7c436fc6fc31671f6"
+  sha256: "0x9zk8y0n31hll1alqppw83lz6n0azf4ssja214lw962zgc6f9nf"
+src:
+  type: git
+  url: "https://github.com/ern775/test-repo"
+  rev: "d1bb09c5cab53abf9fd79bcd524671aaf79da68a"
+  hash: "sha256-S9W/Quh7StBSLx7ofSaGPcOCOSoqHdm/bGnfEHAE/bk="
+packages:
+  - gnumake
+build: |
+  make
+install: |
+  make install
