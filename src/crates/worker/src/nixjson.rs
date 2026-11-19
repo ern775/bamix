@@ -120,6 +120,14 @@ pub fn find_drv_path(lines: &[String]) -> Option<String> {
     })
 }
 
+/// `nix log` output contains structured `@nix { ... }` marker lines; drop them.
+pub fn strip_nix_markers(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|l| !l.starts_with("@nix "))
+        .map(str::to_owned)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +179,32 @@ mod tests {
         assert_eq!(hello.nar_size, Some(16176));
         assert_eq!(hello.references.len(), 1);
         assert_eq!(c.iter().filter_map(|e| e.nar_size).sum::<u64>(), 38_252_104);
+    }
+
+    #[test]
+    fn real_nix_failure_text() {
+        // Shape of a failed build on the author's Nix (exit code 1, not 100).
+        let lines: Vec<String> = [
+            "error: Cannot build '/nix/store/vdrs0kmcjk0rzxnxnai2rzgylk8lwgw0-hello-c.drv'.",
+            "       Reason: builder failed with exit code 1.",
+            "       For full logs, run:",
+            "         nix log /nix/store/vdrs0kmcjk0rzxnxnai2rzgylk8lwgw0-hello-c.drv",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            find_drv_path(&lines).as_deref(),
+            Some("/nix/store/vdrs0kmcjk0rzxnxnai2rzgylk8lwgw0-hello-c.drv")
+        );
+    }
+
+    #[test]
+    fn strips_markers() {
+        let log = "Running phase: buildPhase\n@nix { \"action\": \"setPhase\" }\nmake: error\n";
+        assert_eq!(
+            strip_nix_markers(log),
+            vec!["Running phase: buildPhase", "make: error"]
+        );
     }
 
     #[test]

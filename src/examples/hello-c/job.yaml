@@ -1,3 +1,4 @@
+schema_version: 1
 name: hello-c
 nixpkgs:
   rev: "f4a03c008967841f2a0b3cb7c436fc6fc31671f6"
@@ -7,7 +8,7 @@ src:
   url: "https://github.com/ern775/test-repo"
   rev: "d1bb09c5cab53abf9fd79bcd524671aaf79da68a"
   hash: "sha256-S9W/Quh7StBSLx7ofSaGPcOCOSoqHdm/bGnfEHAE/bk="
-packages:
+native_build_inputs:
   - gnumake
 build: |
   make

@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use common::JobSpec;
 use tokio::sync::mpsc;
+use worker::cache::CacheConfig;
 use worker::runner::{BuildOutcome, RunOptions, run_job};
 
 #[derive(Parser)]
@@ -45,6 +46,12 @@ enum Cmd {
         /// Skip the `sandbox = true` preflight (development only)
         #[arg(long)]
         no_sandbox_check: bool,
+        /// Push results here after a successful build, e.g. ssh-ng://bamix-push@laptop
+        #[arg(long, requires = "signing_key")]
+        cache_uri: Option<String>,
+        /// Secret key used to sign results before pushing
+        #[arg(long, requires = "cache_uri")]
+        signing_key: Option<PathBuf>,
         /// Print the outcome as JSON on stdout (build logs always go to stderr)
         #[arg(long)]
         json: bool,
@@ -71,7 +78,7 @@ async fn main() -> ExitCode {
 }
 
 async fn real_main() -> Result<ExitCode> {
-    let (spec, nix_bin, work_dir, timeout_secs, keep_workdir, no_sandbox_check, json) =
+    let (spec, nix_bin, work_dir, timeout_secs, keep_workdir, no_sandbox_check, json, cache) =
         match Cli::parse().cmd {
             Cmd::Render { spec, out } => {
                 let spec = JobSpec::from_path(&spec)?;
@@ -86,6 +93,8 @@ async fn real_main() -> Result<ExitCode> {
                 timeout_secs,
                 keep_workdir,
                 no_sandbox_check,
+                cache_uri,
+                signing_key,
                 json,
             } => (
                 spec,
@@ -95,6 +104,12 @@ async fn real_main() -> Result<ExitCode> {
                 keep_workdir,
                 no_sandbox_check,
                 json,
+                cache_uri
+                    .zip(signing_key)
+                    .map(|(store_uri, signing_key)| CacheConfig {
+                        store_uri,
+                        signing_key,
+                    }),
             ),
         };
 
@@ -104,6 +119,7 @@ async fn real_main() -> Result<ExitCode> {
         timeout: Duration::from_secs(timeout_secs),
         keep_workdir,
         require_sandbox: !no_sandbox_check,
+        cache,
         ..RunOptions::default()
     };
     if let Some(d) = work_dir {
@@ -133,6 +149,9 @@ async fn real_main() -> Result<ExitCode> {
                     s.closure_nar_size
                 );
                 println!("time:    {:.1}s", s.build_secs);
+                if let Some(c) = &s.pushed_to {
+                    println!("pushed:  {c}");
+                }
             }
             BuildOutcome::Failed(f) => {
                 println!(

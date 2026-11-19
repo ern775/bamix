@@ -19,6 +19,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn};
 
+use crate::cache::{self, CacheConfig};
 use crate::nixjson::{self, ClosureEntry};
 
 /// Receives build log lines as they appear (later: forwarded to the dispatcher).
@@ -32,6 +33,8 @@ pub struct RunOptions {
     pub keep_workdir: bool,
     pub require_sandbox: bool,
     pub log_tail_lines: usize,
+    /// If set, successful builds are signed and pushed here before being reported.
+    pub cache: Option<CacheConfig>,
 }
 
 impl Default for RunOptions {
@@ -43,6 +46,7 @@ impl Default for RunOptions {
             keep_workdir: false,
             require_sandbox: true,
             log_tail_lines: 200,
+            cache: None,
         }
     }
 }
@@ -55,6 +59,8 @@ pub struct BuildSuccess {
     pub closure: Vec<ClosureEntry>,
     pub closure_nar_size: u64,
     pub build_secs: f64,
+    /// Cache this result was pushed to, if any.
+    pub pushed_to: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -185,7 +191,7 @@ fn nix_cmd(opts: &RunOptions, args: &[&str]) -> Command {
 }
 
 /// Run a short nix command and return stdout, failing on non-zero exit.
-async fn nix_output(opts: &RunOptions, args: &[&str]) -> Result<String> {
+pub(crate) async fn nix_output(opts: &RunOptions, args: &[&str]) -> Result<String> {
     let cap = run_streaming(
         nix_cmd(opts, args),
         Some(Duration::from_secs(120)),
@@ -256,7 +262,7 @@ pub async fn run_job(
         if let Some(drv) = &drv_path {
             // Full log of the failed derivation is more useful than nix's trailer.
             if let Ok(full) = nix_output(opts, &["log", drv]).await {
-                let lines: Vec<String> = full.lines().map(str::to_owned).collect();
+                let lines = nixjson::strip_nix_markers(&full);
                 let skip = lines.len().saturating_sub(opts.log_tail_lines);
                 log_tail = lines[skip..].to_vec();
             }
@@ -293,6 +299,16 @@ pub async fn run_job(
     let closure_nar_size = closure.iter().filter_map(|e| e.nar_size).sum();
     info!(%job_id, %out_path, entries = closure.len(), "build succeeded");
 
+    // Push before reporting success: a result nobody can fetch is not a success.
+    let pushed_to = match &opts.cache {
+        Some(cfg) => {
+            cache::push(opts, cfg, &out_path).await?;
+            info!(%job_id, cache = %cfg.store_uri, "pushed to cache");
+            Some(cfg.store_uri.clone())
+        }
+        None => None,
+    };
+
     Ok(BuildOutcome::Succeeded(BuildSuccess {
         job_id,
         out_path,
@@ -300,5 +316,6 @@ pub async fn run_job(
         closure,
         closure_nar_size,
         build_secs,
+        pushed_to,
     }))
 }
